@@ -33,11 +33,11 @@ htmlcov/
 .ipynb_checkpoints
 
 # Key files
-*.pem
-*.key
-*.crt
-quant_id_rsa*
-
-src/config.py
-src/api/jq_config.py
-src/api/qmt_jq_trade.py
+#*.pem
+#*.key
+#*.crt
+#quant_id_rsa*
+#
+#src/config.py
+#src/api/jq_config.py
+#src/api/qmt_jq_trade.py
