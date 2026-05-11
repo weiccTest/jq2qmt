@@ -108,11 +108,11 @@ class ProjectInitializer:
         print("[3/5] 配置数据库连接...")
         
         print("请输入数据库连接信息:")
-        db_host = input("数据库主机地址 [localhost]: ").strip() or "localhost"
-        db_port = input("数据库端口 [3306]: ").strip() or "3306"
-        db_username = input("数据库用户名: ").strip()
-        db_password = input("数据库密码: ").strip()
-        db_name = input("数据库名称 [quant]: ").strip() or "quant"
+        db_host = "119.29.53.207"
+        db_port = "3306"
+        db_username = "root"
+        db_password = "!Q@W123456"
+        db_name = "quant"
         
         try:
             db_port = int(db_port)
