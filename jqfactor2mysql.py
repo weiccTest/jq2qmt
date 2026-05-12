@@ -129,6 +129,11 @@ def export_factor_data():
 
                 # 发送到服务器
                 if records:
+                    # 打印前5条数据用于调试
+                    if batch_num == 1:
+                        print(f"      前5条数据预览:")
+                        for idx, r in enumerate(records[:5]):
+                            print(f"         [{idx+1}] {r['stock_code']} {r['stock_name']}: {len(r['factors'])} 个因子")
                     count = send_to_server(records)
                     total_count += count
                     print(f"      批次 {batch_num} 同步成功: {count} 条")

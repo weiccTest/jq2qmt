@@ -163,6 +163,7 @@ def save_factors_batch():
     try:
         data = request.json
         records = data.get('records', [])
+        print(f"[save_factors_batch] 收到 {len(records)} 条记录")
 
         if not records:
             return jsonify({'code': 0, 'count': 0})
@@ -200,10 +201,14 @@ def save_factors_batch():
             count += 1
 
         conn.commit()
+        print(f"[save_factors_batch] 写入成功 {count} 条, trade_date={records[0].get('trade_date') if records else 'N/A'}")
         cursor.close()
         conn.close()
         return jsonify({'code': 0, 'count': count})
     except Exception as e:
+        print(f"[save_factors_batch] 错误: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'code': -1, 'msg': str(e)})
 
 
