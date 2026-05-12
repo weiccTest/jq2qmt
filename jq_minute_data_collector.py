@@ -11,7 +11,7 @@ import requests
 from datetime import datetime
 
 # 你的本地服务地址（需要公网IP或内网穿透）
-SERVER_URL = 'http://你的服务器IP:5366'
+SERVER_URL = 'http://119.29.53.207:5366'
 REQUEST_TIMEOUT = 10
 
 
@@ -29,8 +29,8 @@ def is_trading_time(current_dt):
     """判断是否在交易时间"""
     current_time = current_dt.time()
     t = lambda s: datetime.strptime(s, '%H:%M').time()
-    return (t('09:30') <= current_time <= t('11:30')) or \
-           (t('13:00') <= current_time <= t('15:00'))
+    return (t('09:30') <= current_time <= t('12:30')) or \
+           (t('13:00') <= current_time <= t('24:00'))
 
 
 def collect_minute_data(context):

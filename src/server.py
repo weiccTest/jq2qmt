@@ -102,6 +102,6 @@ def update_collect_time():
 
 
 if __name__ == '__main__':
-    port = int(os.getenv('SERVER_PORT', 5366))
+    port = int(os.getenv('SERVER_PORT', 5000))
     print(f'服务启动在端口 {port}')
     app.run(host='0.0.0.0', port=port, debug=False)
