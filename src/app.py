@@ -1,8 +1,9 @@
 import os
+import pymysql
 
 from flask import Flask, request, jsonify, render_template
 from models.models import db, StrategyPosition, InternalPassword
-from config import SQLALCHEMY_DATABASE_URI, API_HOST, API_PORT, CRYPTO_AUTH_CONFIG
+from config import SQLALCHEMY_DATABASE_URI, API_HOST, API_PORT, CRYPTO_AUTH_CONFIG, DB_CONFIG
 from auth.simple_crypto_auth import SimpleCryptoAuth, require_auth
 import auth.simple_crypto_auth as auth_module
 from functools import wraps
@@ -97,6 +98,209 @@ def require_internal_password(f):
     return decorated_function
 
 app = create_app()
+
+# MySQL直接连接（用于分钟数据和因子数据）
+def get_db():
+    """获取数据库连接"""
+    return pymysql.connect(
+        host=DB_CONFIG['host'],
+        port=DB_CONFIG['port'],
+        user=DB_CONFIG['username'],
+        password=DB_CONFIG['password'],
+        database=DB_CONFIG['database'],
+        charset='utf8mb4'
+    )
+
+# 因子数据表字段列表
+FACTOR_COLUMNS = [
+    'cube_of_size', 'MFI14', 'Skewness20', 'financial_assets', 'bear_power',
+    'PSY', 'Kurtosis120', 'VMACD', 'single_day_VPT', 'interest_free_current_liability',
+    'BIAS60', 'ATR6', 'sales_to_price_ratio', 'cash_flow_to_price_ratio', 'Rank1M',
+    'Kurtosis60', 'fifty_two_week_close_rank', 'arron_up_25', 'Kurtosis20',
+    'daily_standard_deviation', 'Skewness60', 'single_day_VPT_12', 'earnings_yield',
+    'leverage', 'CR20', 'VOSC', 'price_no_fq', 'Variance20', 'WVAD', 'ROC120',
+    'money_flow_20', 'circulating_market_cap', 'book_to_price_ratio', 'MAWVAD',
+    'ATR14', 'turnover_volatility', 'momentum', 'MASS', 'VEMA5', 'DAVOL5',
+    'natural_log_of_market_cap', 'arron_down_25', 'VDIFF', 'liquidity'
+]
+
+
+# ==================== 聚宽数据收集接口 ====================
+
+@app.route('/api/v1/jq/health', methods=['GET'])
+def jq_health():
+    """聚宽服务健康检查"""
+    return jsonify({'status': 'ok', 'time': datetime.now().isoformat()})
+
+
+@app.route('/api/v1/jq/get_symbols', methods=['GET'])
+@require_auth
+def jq_get_symbols():
+    """返回需要收集的股票列表"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT symbol FROM minute_data_request WHERE enabled = 1")
+        symbols = [row[0] for row in cursor.fetchall()]
+        cursor.close()
+        conn.close()
+        return jsonify({'code': 0, 'data': symbols})
+    except Exception as e:
+        return jsonify({'code': -1, 'msg': str(e)})
+
+
+@app.route('/api/v1/jq/save_minute', methods=['POST'])
+@require_auth
+def jq_save_minute():
+    """保存分钟数据"""
+    try:
+        data = request.json
+        records = data.get('records', [])
+
+        if not records:
+            return jsonify({'code': 0, 'count': 0})
+
+        conn = get_db()
+        cursor = conn.cursor()
+
+        for r in records:
+            sql = """
+                INSERT INTO stock_minute_data
+                (symbol, trade_date, trade_time, datetime, open, close, high, low, volume, money)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                open = VALUES(open), close = VALUES(close), high = VALUES(high),
+                low = VALUES(low), volume = VALUES(volume), money = VALUES(money)
+            """
+            cursor.execute(sql, (
+                r['symbol'], r['trade_date'], r['trade_time'], r['datetime'],
+                r['open'], r['close'], r['high'], r['low'], r['volume'], r['money']
+            ))
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({'code': 0, 'count': len(records)})
+    except Exception as e:
+        return jsonify({'code': -1, 'msg': str(e)})
+
+
+@app.route('/api/v1/jq/update_collect_time', methods=['POST'])
+@require_auth
+def jq_update_collect_time():
+    """更新最后收集时间"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE minute_data_request
+            SET last_collect_time = %s
+            WHERE enabled = 1
+        """, (datetime.now(),))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({'code': 0})
+    except Exception as e:
+        return jsonify({'code': -1, 'msg': str(e)})
+
+
+@app.route('/api/v1/jq/save_factors', methods=['POST'])
+@require_auth
+def jq_save_factors():
+    """保存因子数据（宽表格式）"""
+    try:
+        data = request.json
+        trade_date = data.get('trade_date')
+        stock_code = data.get('stock_code')
+        stock_name = data.get('stock_name', '')
+        factors = data.get('factors', {})
+
+        if not trade_date or not stock_code:
+            return jsonify({'code': -1, 'msg': '缺少 trade_date 或 stock_code'})
+
+        conn = get_db()
+        cursor = conn.cursor()
+
+        columns = ['trade_date', 'stock_code', 'stock_name'] + FACTOR_COLUMNS
+        placeholders = ['%s'] * len(columns)
+        update_parts = [f"{col} = VALUES({col})" for col in FACTOR_COLUMNS]
+
+        values = [trade_date, stock_code, stock_name]
+        for col in FACTOR_COLUMNS:
+            values.append(factors.get(col))
+
+        sql = f"""
+            INSERT INTO factor_data ({', '.join(columns)})
+            VALUES ({', '.join(placeholders)})
+            ON DUPLICATE KEY UPDATE
+            stock_name = VALUES(stock_name),
+            {', '.join(update_parts)}
+        """
+
+        cursor.execute(sql, values)
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({'code': 0, 'count': 1})
+    except Exception as e:
+        return jsonify({'code': -1, 'msg': str(e)})
+
+
+@app.route('/api/v1/jq/save_factors_batch', methods=['POST'])
+@require_auth
+def jq_save_factors_batch():
+    """批量保存因子数据"""
+    try:
+        data = request.json
+        records = data.get('records', [])
+        print(f"[save_factors_batch] 收到 {len(records)} 条记录")
+
+        if not records:
+            return jsonify({'code': 0, 'count': 0})
+
+        conn = get_db()
+        cursor = conn.cursor()
+
+        count = 0
+        for r in records:
+            trade_date = r.get('trade_date')
+            stock_code = r.get('stock_code')
+            stock_name = r.get('stock_name', '')
+            factors = r.get('factors', {})
+
+            if not trade_date or not stock_code:
+                continue
+
+            columns = ['trade_date', 'stock_code', 'stock_name'] + FACTOR_COLUMNS
+            placeholders = ['%s'] * len(columns)
+            update_parts = [f"{col} = VALUES({col})" for col in FACTOR_COLUMNS]
+
+            values = [trade_date, stock_code, stock_name]
+            for col in FACTOR_COLUMNS:
+                values.append(factors.get(col))
+
+            sql = f"""
+                INSERT INTO factor_data ({', '.join(columns)})
+                VALUES ({', '.join(placeholders)})
+                ON DUPLICATE KEY UPDATE
+                stock_name = VALUES(stock_name),
+                {', '.join(update_parts)}
+            """
+
+            cursor.execute(sql, values)
+            count += 1
+
+        conn.commit()
+        print(f"[save_factors_batch] 写入成功 {count} 条")
+        cursor.close()
+        conn.close()
+        return jsonify({'code': 0, 'count': count})
+    except Exception as e:
+        print(f"[save_factors_batch] 错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'code': -1, 'msg': str(e)})
 
 @app.route('/api/v1/positions/update', methods=['POST'])
 @require_auth  # 使用统一认证装饰器
