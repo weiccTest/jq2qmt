@@ -101,6 +101,112 @@ def update_collect_time():
         return jsonify({'code': -1, 'msg': str(e)})
 
 
+# 因子数据表字段列表
+FACTOR_COLUMNS = [
+    'cube_of_size', 'MFI14', 'Skewness20', 'financial_assets', 'bear_power',
+    'PSY', 'Kurtosis120', 'VMACD', 'single_day_VPT', 'interest_free_current_liability',
+    'BIAS60', 'ATR6', 'sales_to_price_ratio', 'cash_flow_to_price_ratio', 'Rank1M',
+    'Kurtosis60', 'fifty_two_week_close_rank', 'arron_up_25', 'Kurtosis20',
+    'daily_standard_deviation', 'Skewness60', 'single_day_VPT_12', 'earnings_yield',
+    'leverage', 'CR20', 'VOSC', 'price_no_fq', 'Variance20', 'WVAD', 'ROC120',
+    'money_flow_20', 'circulating_market_cap', 'book_to_price_ratio', 'MAWVAD',
+    'ATR14', 'turnover_volatility', 'momentum', 'MASS', 'VEMA5', 'DAVOL5',
+    'natural_log_of_market_cap', 'arron_down_25', 'VDIFF', 'liquidity'
+]
+
+
+@app.route('/save_factors', methods=['POST'])
+def save_factors():
+    """保存因子数据（宽表格式）"""
+    try:
+        data = request.json
+        trade_date = data.get('trade_date')
+        stock_code = data.get('stock_code')
+        stock_name = data.get('stock_name', '')
+        factors = data.get('factors', {})
+
+        if not trade_date or not stock_code:
+            return jsonify({'code': -1, 'msg': '缺少 trade_date 或 stock_code'})
+
+        conn = get_db()
+        cursor = conn.cursor()
+
+        # 构建动态SQL
+        columns = ['trade_date', 'stock_code', 'stock_name'] + FACTOR_COLUMNS
+        placeholders = ['%s'] * len(columns)
+        update_parts = [f"{col} = VALUES({col})" for col in FACTOR_COLUMNS]
+
+        values = [trade_date, stock_code, stock_name]
+        for col in FACTOR_COLUMNS:
+            values.append(factors.get(col))
+
+        sql = f"""
+            INSERT INTO factor_data ({', '.join(columns)})
+            VALUES ({', '.join(placeholders)})
+            ON DUPLICATE KEY UPDATE
+            stock_name = VALUES(stock_name),
+            {', '.join(update_parts)}
+        """
+
+        cursor.execute(sql, values)
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({'code': 0, 'count': 1})
+    except Exception as e:
+        return jsonify({'code': -1, 'msg': str(e)})
+
+
+@app.route('/save_factors_batch', methods=['POST'])
+def save_factors_batch():
+    """批量保存因子数据"""
+    try:
+        data = request.json
+        records = data.get('records', [])
+
+        if not records:
+            return jsonify({'code': 0, 'count': 0})
+
+        conn = get_db()
+        cursor = conn.cursor()
+
+        count = 0
+        for r in records:
+            trade_date = r.get('trade_date')
+            stock_code = r.get('stock_code')
+            stock_name = r.get('stock_name', '')
+            factors = r.get('factors', {})
+
+            if not trade_date or not stock_code:
+                continue
+
+            columns = ['trade_date', 'stock_code', 'stock_name'] + FACTOR_COLUMNS
+            placeholders = ['%s'] * len(columns)
+            update_parts = [f"{col} = VALUES({col})" for col in FACTOR_COLUMNS]
+
+            values = [trade_date, stock_code, stock_name]
+            for col in FACTOR_COLUMNS:
+                values.append(factors.get(col))
+
+            sql = f"""
+                INSERT INTO factor_data ({', '.join(columns)})
+                VALUES ({', '.join(placeholders)})
+                ON DUPLICATE KEY UPDATE
+                stock_name = VALUES(stock_name),
+                {', '.join(update_parts)}
+            """
+
+            cursor.execute(sql, values)
+            count += 1
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({'code': 0, 'count': count})
+    except Exception as e:
+        return jsonify({'code': -1, 'msg': str(e)})
+
+
 if __name__ == '__main__':
     port = int(os.getenv('SERVER_PORT', 5000))
     print(f'服务启动在端口 {port}')
