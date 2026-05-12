@@ -12,7 +12,7 @@ DB_CONFIG = {
     'host': '119.29.53.207',
     'username': 'root',
     'password': '!Q@W123456',
-    'database': 'quant',
+    'database': 'test_db',
     'port': 3306
 }
 

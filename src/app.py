@@ -1,5 +1,7 @@
 import os
 import pymysql
+import logging
+from logging.handlers import RotatingFileHandler
 
 from flask import Flask, request, jsonify, render_template
 from models.models import db, StrategyPosition, InternalPassword
@@ -9,59 +11,114 @@ import auth.simple_crypto_auth as auth_module
 from functools import wraps
 from datetime import datetime
 
+# ==================== 日志配置 ====================
+def setup_logging(app):
+    """配置日志"""
+    # 创建 logs 目录
+    log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'logs')
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+
+    # 日志格式
+    formatter = logging.Formatter(
+        '%(asctime)s %(levelname)s [%(name)s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+
+    # 文件处理器 - 按大小轮转
+    file_handler = RotatingFileHandler(
+        os.path.join(log_dir, 'app.log'),
+        maxBytes=10*1024*1024,  # 10MB
+        backupCount=5,
+        encoding='utf-8'
+    )
+    file_handler.setFormatter(formatter)
+    file_handler.setLevel(logging.INFO)
+
+    # 控制台处理器
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    console_handler.setLevel(logging.INFO)
+
+    # 配置根日志
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler)
+
+    # 配置应用日志
+    app.logger.addHandler(file_handler)
+    app.logger.addHandler(console_handler)
+    app.logger.setLevel(logging.INFO)
+
+    return logging.getLogger(__name__)
+
+logger = None  # 将在 create_app 中初始化
+
 def create_app():
     app = Flask(__name__)
     app.config['SQLALCHEMY_DATABASE_URI'] = SQLALCHEMY_DATABASE_URI
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-    
+
+    # 初始化日志
+    global logger
+    logger = setup_logging(app)
+    logger.info("=" * 50)
+    logger.info("应用启动中...")
+
     db.init_app(app)
-    
+
     # 初始化认证系统
     init_auth_system()
-    
+
+    # 添加请求日志中间件
+    @app.before_request
+    def log_request():
+        logger.info(f"[REQUEST] {request.method} {request.path} - IP: {request.remote_addr}")
+
+    @app.after_request
+    def log_response(response):
+        logger.info(f"[RESPONSE] {request.method} {request.path} - Status: {response.status_code}")
+        return response
+
     with app.app_context():
         db.create_all()
-    
+
+    logger.info("应用启动完成")
     return app
 
 def init_auth_system():
     """初始化认证系统"""
     if CRYPTO_AUTH_CONFIG.get('ENABLED', True):
-        # 启用加密认证
         try:
-            # 优先使用文件路径配置
             if 'PRIVATE_KEY_FILE' in CRYPTO_AUTH_CONFIG and 'PUBLIC_KEY_FILE' in CRYPTO_AUTH_CONFIG:
                 private_key_file = CRYPTO_AUTH_CONFIG['PRIVATE_KEY_FILE']
                 public_key_file = CRYPTO_AUTH_CONFIG['PUBLIC_KEY_FILE']
-                
-                # 设置全局认证实例（从文件读取）
+
                 auth_module.crypto_auth = SimpleCryptoAuth(
                     private_key_file=private_key_file,
                     public_key_file=public_key_file
                 )
-                print(f"加密认证系统已启用（从文件读取密钥: {private_key_file}, {public_key_file}）")
-            
-            # 兼容旧的字符串配置方式
+                logger.info(f"加密认证系统已启用（从文件读取密钥: {private_key_file}, {public_key_file}）")
+
             elif 'PRIVATE_KEY' in CRYPTO_AUTH_CONFIG and 'PUBLIC_KEY' in CRYPTO_AUTH_CONFIG:
                 private_key = CRYPTO_AUTH_CONFIG['PRIVATE_KEY']
                 public_key = CRYPTO_AUTH_CONFIG['PUBLIC_KEY']
-                
-                # 设置全局认证实例（从字符串读取）
+
                 auth_module.crypto_auth = SimpleCryptoAuth(private_key, public_key)
-                print("加密认证系统已启用（从配置字符串读取密钥）")
-            
+                logger.info("加密认证系统已启用（从配置字符串读取密钥）")
+
             else:
                 raise ValueError("密钥配置不完整，请配置密钥文件路径或密钥字符串")
-                
+
         except Exception as e:
-            print(f"加密认证系统初始化失败: {e}")
-            print("请检查密钥文件是否存在或密钥格式是否正确")
+            logger.error(f"加密认证系统初始化失败: {e}")
+            logger.error("请检查密钥文件是否存在或密钥格式是否正确")
             raise
     else:
-        # 禁用加密认证，使用简单API密钥
-        print("加密认证已禁用，使用简单API密钥认证")
+        logger.info("加密认证已禁用，使用简单API密钥认证")
         if not CRYPTO_AUTH_CONFIG.get('SIMPLE_API_KEY'):
-            print("警告: 未配置简单API密钥，API将不安全！")
+            logger.warning("未配置简单API密钥，API将不安全！")
 
 def require_internal_password(f):
     """内部API密码验证装饰器"""
@@ -144,8 +201,10 @@ def jq_get_symbols():
         symbols = [row[0] for row in cursor.fetchall()]
         cursor.close()
         conn.close()
+        logger.info(f"[jq_get_symbols] 返回 {len(symbols)} 只股票")
         return jsonify({'code': 0, 'data': symbols})
     except Exception as e:
+        logger.error(f"[jq_get_symbols] 错误: {e}")
         return jsonify({'code': -1, 'msg': str(e)})
 
 
@@ -159,6 +218,8 @@ def jq_save_minute():
 
         if not records:
             return jsonify({'code': 0, 'count': 0})
+
+        logger.info(f"[jq_save_minute] 收到 {len(records)} 条分钟数据")
 
         conn = get_db()
         cursor = conn.cursor()
@@ -180,8 +241,10 @@ def jq_save_minute():
         conn.commit()
         cursor.close()
         conn.close()
+        logger.info(f"[jq_save_minute] 写入成功 {len(records)} 条")
         return jsonify({'code': 0, 'count': len(records)})
     except Exception as e:
+        logger.error(f"[jq_save_minute] 错误: {e}")
         return jsonify({'code': -1, 'msg': str(e)})
 
 
@@ -200,8 +263,10 @@ def jq_update_collect_time():
         conn.commit()
         cursor.close()
         conn.close()
+        logger.info("[jq_update_collect_time] 更新收集时间成功")
         return jsonify({'code': 0})
     except Exception as e:
+        logger.error(f"[jq_update_collect_time] 错误: {e}")
         return jsonify({'code': -1, 'msg': str(e)})
 
 
@@ -242,8 +307,10 @@ def jq_save_factors():
         conn.commit()
         cursor.close()
         conn.close()
+        logger.info(f"[jq_save_factors] 保存因子成功: {stock_code} {trade_date}")
         return jsonify({'code': 0, 'count': 1})
     except Exception as e:
+        logger.error(f"[jq_save_factors] 错误: {e}")
         return jsonify({'code': -1, 'msg': str(e)})
 
 
@@ -254,7 +321,7 @@ def jq_save_factors_batch():
     try:
         data = request.json
         records = data.get('records', [])
-        print(f"[save_factors_batch] 收到 {len(records)} 条记录")
+        logger.info(f"[jq_save_factors_batch] 收到 {len(records)} 条因子记录")
 
         if not records:
             return jsonify({'code': 0, 'count': 0})
@@ -292,43 +359,44 @@ def jq_save_factors_batch():
             count += 1
 
         conn.commit()
-        print(f"[save_factors_batch] 写入成功 {count} 条")
         cursor.close()
         conn.close()
+        logger.info(f"[jq_save_factors_batch] 写入成功 {count} 条, trade_date={records[0].get('trade_date') if records else 'N/A'}")
         return jsonify({'code': 0, 'count': count})
     except Exception as e:
-        print(f"[save_factors_batch] 错误: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"[jq_save_factors_batch] 错误: {e}")
         return jsonify({'code': -1, 'msg': str(e)})
 
 @app.route('/api/v1/positions/update', methods=['POST'])
-@require_auth  # 使用统一认证装饰器
+@require_auth
 def update_positions():
     try:
         data = request.get_json()
         if not data or 'strategy_name' not in data or 'positions' not in data:
             return jsonify({'error': '无效的数据格式'}), 400
-            
+
         StrategyPosition.update_positions(data['strategy_name'], data['positions'])
+        logger.info(f"[update_positions] 策略 {data['strategy_name']} 更新 {len(data['positions'])} 条持仓")
         return jsonify({
             'message': '持仓更新成功',
             'client_id': getattr(request, 'client_id', 'unknown'),
             'auth_type': getattr(request, 'auth_type', 'unknown')
         })
     except Exception as e:
+        logger.error(f"[update_positions] 错误: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/v1/positions/update/internal', methods=['POST'])
-@require_internal_password  # 使用内部密码验证
+@require_internal_password
 def update_positions_internal():
     """内部持仓更新接口，使用密码验证而不是RSA验证"""
     try:
         data = request.get_json()
         if not data or 'strategy_name' not in data or 'positions' not in data:
             return jsonify({'error': '无效的数据格式'}), 400
-            
+
         StrategyPosition.update_positions(data['strategy_name'], data['positions'])
+        logger.info(f"[update_positions_internal] 策略 {data['strategy_name']} 更新 {len(data['positions'])} 条持仓")
         return jsonify({
             'message': '持仓更新成功（内部接口）',
             'strategy_name': data['strategy_name'],
@@ -336,6 +404,7 @@ def update_positions_internal():
             'auth_type': 'internal_password'
         })
     except Exception as e:
+        logger.error(f"[update_positions_internal] 错误: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/v1/auth/info', methods=['GET'])
@@ -362,17 +431,19 @@ def set_internal_password():
         data = request.get_json()
         if not data or 'new_password' not in data:
             return jsonify({'error': '缺少新密码'}), 400
-        
+
         new_password = data['new_password']
         if len(new_password) < 6:
             return jsonify({'error': '密码长度至少6位'}), 400
-        
+
         InternalPassword.set_password(new_password)
+        logger.info("[set_internal_password] 密码设置成功")
         return jsonify({
             'message': '密码设置成功',
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         })
     except Exception as e:
+        logger.error(f"[set_internal_password] 错误: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/v1/positions/strategy/<strategy_name>', methods=['GET'])
