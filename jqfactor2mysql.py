@@ -23,8 +23,9 @@ INDEX_CODE = '000985.XSHG'  # 中证全指
 # 每批获取股票数量
 BATCH_SIZE = 100
 
-# 导出日期（None表示最新交易日）
-EXPORT_DATE = None  # 或指定日期如 '2024-04-27'
+# 导出日期（None表示最近一个有数据的交易日，即前一个交易日）
+# EXPORT_DATE = None  # 或指定日期如 '2024-04-26'
+EXPORT_DATE = '2026-05-07'
 
 # 因子列表
 FACTOR_LIST = [
@@ -89,7 +90,14 @@ def export_factor_data():
 
     # 2. 获取股票池
     print("\n[1/4] 获取股票池...")
-    trade_date = get_trade_days(end_date=end_date, count=1)[0]
+    # 获取前一个交易日（开盘前运行时，当天数据还没计算）
+    if EXPORT_DATE:
+        trade_date = get_trade_days(end_date=EXPORT_DATE, count=1)[0]
+    else:
+        # 开盘前运行，获取前一个有数据的交易日
+        trade_dates = get_trade_days(end_date=pd.Timestamp.today().strftime('%Y-%m-%d'), count=2)
+        trade_date = trade_dates[0]  # 取前一个交易日
+    print(f"   trade_date={trade_date}")
     stock_list = get_index_stocks(INDEX_CODE, date=trade_date)
     print(f"   股票数量: {len(stock_list)}")
 
@@ -160,6 +168,19 @@ def process_factor_data(factor_result, stock_list, factor_list, trade_date, stoc
     """处理 jqfactor 返回的因子数据，转换为API所需格式"""
 
     records = []
+
+    # 调试：打印返回数据结构
+    # print(f"      factor_result 类型: {type(factor_result)}")
+    # if isinstance(factor_result, dict):
+    #     print(f"      factor_result keys: {list(factor_result.keys())[:3]}...")
+    #     # first_key = list(factor_result.keys())[0]
+        # first_df = factor_result[first_key]
+        # print(f"      第一个因子 {first_key} 的数据:")
+        # print(f"         类型: {type(first_df)}, shape: {first_df.shape if first_df is not None else 'None'}")
+        # if first_df is not None and len(first_df) > 0:
+        #     print(f"         columns: {first_df.columns.tolist()[:5]}...")
+        #     print(f"         index: {first_df.index.tolist()}")
+        #     print(f"         数据示例:\n{first_df}")
 
     if isinstance(factor_result, dict):
         # 字典格式：{因子名: DataFrame(日期x股票)}
