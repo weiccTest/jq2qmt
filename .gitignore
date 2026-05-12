@@ -40,4 +40,6 @@ htmlcov/
 #
 #src/config.py
 #src/api/jq_config.py
-#src/api/qmt_jq_trade.py
+#src/api/qmt_jq_trade.py/
+/tmp/*
+*.json
