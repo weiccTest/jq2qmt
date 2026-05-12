@@ -12,7 +12,7 @@ from datetime import datetime
 
 # 你的本地服务地址（需要公网IP或内网穿透）
 SERVER_URL = 'http://119.29.53.207:5000'
-REQUEST_TIMEOUT = 10
+REQUEST_TIMEOUT = 20
 
 
 def initialize(context):
@@ -29,8 +29,8 @@ def is_trading_time(current_dt):
     """判断是否在交易时间"""
     current_time = current_dt.time()
     t = lambda s: datetime.strptime(s, '%H:%M').time()
-    return (t('09:30') <= current_time <= t('12:30')) or \
-           (t('13:00') <= current_time <= t('24:00'))
+    return (t('09:30') <= current_time <= t('11:31')) or \
+           (t('13:00') <= current_time <= t('15:01'))
 
 
 def collect_minute_data(context):
@@ -64,7 +64,8 @@ def collect_minute_data(context):
                     continue
 
                 bar = bars[-1]
-                dt = datetime.fromtimestamp(bar['date'] / 1000)
+                # 聚宽的 bar['date'] 已经是 datetime 类型
+                dt = bar['date']
 
                 records.append({
                     'symbol': symbol,
@@ -78,6 +79,7 @@ def collect_minute_data(context):
                     'volume': int(bar['volume']),
                     'money': float(bar['money'])
                 })
+                print(f"records is {records}")
             except Exception as e:
                 log.error('获取 %s 数据失败: %s' % (symbol, str(e)))
 
