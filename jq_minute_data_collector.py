@@ -11,7 +11,7 @@ import requests
 from datetime import datetime
 
 # 你的本地服务地址（需要公网IP或内网穿透）
-SERVER_URL = 'http://119.29.53.207:5366'
+SERVER_URL = 'http://119.29.53.207:5000'
 REQUEST_TIMEOUT = 10
 
 

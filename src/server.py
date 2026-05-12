@@ -12,11 +12,11 @@ app = Flask(__name__)
 
 # MySQL连接配置 - 从环境变量读取或使用默认值
 MYSQL_CONFIG = {
-    'host': os.getenv('MYSQL_HOST', 'localhost'),
+    'host': os.getenv('MYSQL_HOST', '119.29.53.207'),
     'port': int(os.getenv('MYSQL_PORT', 3306)),
     'user': os.getenv('MYSQL_USER', 'root'),
-    'password': os.getenv('MYSQL_PASSWORD', ''),
-    'database': os.getenv('MYSQL_DATABASE', 'stock_data'),
+    'password': os.getenv('MYSQL_PASSWORD', '!Q@W123456'),
+    'database': os.getenv('MYSQL_DATABASE', 'test_db'),
     'charset': 'utf8mb4'
 }
 
