@@ -20,6 +20,7 @@ import jqfactor
 # cryptography 库用于加密认证
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.backends import default_backend
 
 # ==================== 配置参数 ====================
 SERVER_URL = 'http://119.29.53.207:5366'  # 服务地址
@@ -98,7 +99,8 @@ class JQAuthClient:
     def __init__(self, private_key_pem):
         self.private_key = serialization.load_pem_private_key(
             private_key_pem.strip().encode('utf-8'),
-            password=None
+            password=None,
+            backend=default_backend()
         )
 
     def generate_auth_token(self, client_id='jq_collector'):
